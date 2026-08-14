@@ -138,7 +138,9 @@ def get_settings():
 def post_settings():
     d = request.get_json(force=True, silent=True) or {}
     s = load_settings()
-    if "yt_cookies" in d:
+    if d.get("clear_cookies"):
+        s.pop("yt_cookies", None)
+    elif "yt_cookies" in d and d["yt_cookies"].strip():
         s["yt_cookies"] = d["yt_cookies"]
     if "default_format" in d:
         s["default_format"] = d["default_format"]

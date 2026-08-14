@@ -150,7 +150,10 @@
           <label class="text-sm font-semibold">YouTube cookies (optional)</label>
           <p class="text-xs text-[var(--muted)] mt-1">Paste an exported <code class="text-[var(--accent)]">cookies.txt</code> to fetch age-restricted / members-only content. Stored only on your volume.</p>
           <textarea id="cookies" class="input mt-2" rows="4" placeholder="# Netscape HTTP Cookie File …"></textarea>
-          <span id="cookieState" class="text-xs text-[var(--muted)]"></span>
+          <div class="flex items-center justify-between mt-2">
+            <span id="cookieState" class="text-xs text-[var(--muted)]"></span>
+            <button id="clearCookies" class="btn btn-ghost text-xs" type="button"><i data-lucide="trash-2"></i>Clear cookies</button>
+          </div>
         </div>
         <div>
           <label class="text-sm font-semibold">Default format</label>
@@ -304,7 +307,7 @@ function hexRgb(h){const n=parseInt(h.slice(1),16);return `${(n>>16)&255},${(n>>
 async function loadSettings(){
   try{ const r=await fetch('/api/settings'); const s=await r.json();
     $('#defFmt').value=s.default_format||'best';
-    if(s.has_cookies) $('#cookieState').textContent='Cookies saved on your volume.';
+    $('#cookieState').textContent = s.has_cookies ? 'Cookies saved on your volume.' : '';
     if(s.accent){ document.documentElement.style.setProperty('--accent',s.accent);
       const rgb=hexRgb(s.accent); document.documentElement.style.setProperty('--accent-soft',`rgba(${rgb},.14)`);
       document.documentElement.style.setProperty('--accent-glow',`rgba(${rgb},.35)`);
@@ -316,6 +319,11 @@ $('#saveSet').onclick=async()=>{
     accent:($('.swatch.sel')||{}).dataset?.c || getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() };
   const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const d=await r.json(); if(d.ok){ toast('Settings saved'); loadSettings(); } else toast('Save failed','err');
+};
+$('#clearCookies').onclick=async()=>{
+  if(!confirm('Remove saved YouTube cookies?')) return;
+  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clear_cookies:true})});
+  const d=await r.json(); if(d.ok){ $('#cookies').value=''; $('#cookieState').textContent=''; toast('Cookies cleared'); } else toast('Clear failed','err');
 };
 
 // ---- init ----
