@@ -11,11 +11,21 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 dl_lock = threading.Lock()
 jobs = {}  # id -> {status, error, files}
 
-FORMAT_PRESETS = {
-    "best": {"format": "best"},
-    "mp4": {"format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best"},
-    "mp3": {"format": "bestaudio/best", "audio": True},
-}
+def build_format(fmt, quality):
+    # ponytail: greedy [ext=mp4] chains can fail when a video has no MP4 stream;
+    # the trailing /best fallback + merge_output_format guarantees a result.
+    if fmt == "mp3":
+        return "bestaudio/best", True, None
+    if fmt == "best":
+        return "best", False, None
+    h = int(quality) if quality and str(quality).isdigit() else None
+    if h:
+        sel = (f"bv[height<={h}][ext=mp4]+ba[ext=m4a]/"
+               f"b[height<={h}][ext=mp4]/"
+               f"bv[height<={h}]+ba/b[height<={h}]/best[height<={h}]/best")
+    else:
+        sel = "bv[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best"
+    return sel, False, "mp4"
 
 
 def load_settings():
@@ -58,20 +68,24 @@ def run_download(job_id, url, preset, cookies_text):
     cookiefile = None
     try:
         with dl_lock:
-            preset_cfg = FORMAT_PRESETS.get(preset, FORMAT_PRESETS["best"])
+            fmt = preset.get("type", "best") if isinstance(preset, dict) else preset
+            quality = preset.get("quality") if isinstance(preset, dict) else None
+            sel, is_audio, merge = build_format(fmt, quality)
             opts = {
                 "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s [%(id)s].%(ext)s"),
                 "noplaylist": True,
                 "quiet": True,
                 "no_warnings": True,
-                "format": preset_cfg["format"],
+                "format": sel,
             }
+            if merge:
+                opts["merge_output_format"] = merge
             if cookies_text and cookies_text.strip():
                 fd, cookiefile = tempfile.mkstemp(suffix=".txt", prefix="cookies_")
                 with os.fdopen(fd, "w") as cf:
                     cf.write(cookies_text)
                 opts["cookiefile"] = cookiefile
-            if preset_cfg.get("audio"):
+            if is_audio:
                 opts["postprocessors"] = [{
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
@@ -141,7 +155,11 @@ def download():
     url = (d.get("url") or "").strip()
     if not re.match(r"^https?://", url):
         return jsonify({"error": "Invalid URL"}), 400
-    preset = d.get("format") or load_settings().get("default_format", "best")
+    preset_raw = d.get("format") or load_settings().get("default_format", "best")
+    if isinstance(preset_raw, dict):
+        preset = preset_raw
+    else:
+        preset = {"type": preset_raw, "quality": d.get("quality")}
     job_id = uuid.uuid4().hex
     jobs[job_id] = {"status": "pending", "error": None, "files": []}
     settings = load_settings()
@@ -184,5 +202,5 @@ def serve_file(name):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)

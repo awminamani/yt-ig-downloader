@@ -15,7 +15,7 @@ Built with Flask + yt-dlp on the backend and a self-contained Tailwind + Motion 
 ## Deploy on Railway
 1. Create a new Railway project → **Empty Service** → **Deploy from GitHub repo** (this repo) or connect via CLI.
 2. The `railway.json` already declares the `/data` volume (0.5 GB) and the healthcheck.
-3. Railway auto-detects the `Dockerfile`. Deploy. The service listens on `$PORT` (default 5000).
+3. Railway auto-detects the `Dockerfile`. Deploy. Set the service variable `PORT = 8080` (the app defaults to 8080 and binds `0.0.0.0`).
 
 Files are saved to `/data` (the mounted volume). The 500 MB cap is enforced by Railway's volume size.
 

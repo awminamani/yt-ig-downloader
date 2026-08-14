@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV DOWNLOAD_DIR=/data PORT=5000
-EXPOSE 5000
+ENV DOWNLOAD_DIR=/data PORT=8080
+EXPOSE 8080
 
 CMD ["python", "app.py"]

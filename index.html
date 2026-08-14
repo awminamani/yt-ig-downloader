@@ -117,6 +117,15 @@
             <option value="mp4">MP4 (video)</option>
             <option value="mp3">MP3 (audio)</option>
           </select>
+          <select id="qual" class="input w-auto hide">
+            <option value="">Auto</option>
+            <option value="2160">2160p (4K)</option>
+            <option value="1440">1440p</option>
+            <option value="1080">1080p</option>
+            <option value="720">720p</option>
+            <option value="480">480p</option>
+            <option value="360">360p</option>
+          </select>
           <button id="go" class="btn btn-primary flex-1"><i data-lucide="zap"></i>Download</button>
         </div>
         <div id="prog" class="hide mt-4">
@@ -212,12 +221,18 @@ $$('.tab').forEach(tab=>{
   };
 });
 
+const fmtSel=$('#fmt'), qualSel=$('#qual');
+fmtSel.onchange=()=> qualSel.classList.toggle('hide', fmtSel.value!=='mp4');
+qualSel.onchange=()=>{};
+
 // ---- Download ----
 $('#go').onclick = async () => {
   const url=$('#url').value.trim(); if(!/^https?:\/\//.test(url)){ toast('Enter a valid http(s) URL','err'); return; }
   pressable($('#go')); $('#go').disabled=true; $('#prog').classList.remove('hide'); $('#progPct').textContent='…';
   try{
-    const r=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url, format:$('#fmt').value})});
+    const body={url, format:fmtSel.value};
+    if(fmtSel.value==='mp4' && qualSel.value) body.quality=qualSel.value;
+    const r=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json(); if(d.error){ toast(d.error,'err'); return; }
     pollJob(d.job_id);
   }catch(e){ toast('Request failed','err'); }
