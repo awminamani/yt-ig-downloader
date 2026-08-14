@@ -127,8 +127,9 @@
             <option value="360">360p</option>
           </select>
           <button id="go" class="btn btn-primary flex-1"><i data-lucide="zap"></i>Download</button>
+          <button id="est" class="btn btn-ghost" type="button" title="Estimate sizes per quality"><i data-lucide="ruler"></i></button>
         </div>
-        <div id="prog" class="hide mt-4">
+        <div id="sizeEst" class="hide mt-3"></div>
           <div class="flex items-center justify-between text-xs text-[var(--muted)] mb-2">
             <span id="progLabel">Downloading…</span><span id="progPct">…</span>
           </div>
@@ -229,16 +230,35 @@ fmtSel.onchange=()=> qualSel.classList.toggle('hide', fmtSel.value!=='mp4');
 qualSel.onchange=()=>{};
 
 // ---- Download ----
-$('#go').onclick = async () => {
+function startDownload(type, h){
   const url=$('#url').value.trim(); if(!/^https?:\/\//.test(url)){ toast('Enter a valid http(s) URL','err'); return; }
   pressable($('#go')); $('#go').disabled=true; $('#prog').classList.remove('hide'); $('#progPct').textContent='…';
+  const body={url, format:type};
+  if(type==='mp4' && h) body.quality=h;
+  fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>r.json()).then(d=>{ if(d.error){ toast(d.error,'err'); $('#go').disabled=false; $('#prog').classList.add('hide'); return; }
+      $('#sizeEst').classList.add('hide'); pollJob(d.job_id); })
+    .catch(()=>{ toast('Request failed','err'); $('#go').disabled=false; $('#prog').classList.add('hide'); });
+}
+$('#go').onclick = () => startDownload(fmtSel.value, fmtSel.value==='mp4' ? qualSel.value : '');
+$('#est').onclick = async () => {
+  const url=$('#url').value.trim(); if(!/^https?:\/\//.test(url)){ toast('Enter a valid URL','err'); return; }
+  const wrap=$('#sizeEst'); wrap.classList.remove('hide');
+  wrap.innerHTML='<div class="skeleton w-full h-12"></div>';
   try{
-    const body={url, format:fmtSel.value};
-    if(fmtSel.value==='mp4' && qualSel.value) body.quality=qualSel.value;
-    const r=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const d=await r.json(); if(d.error){ toast(d.error,'err'); return; }
-    pollJob(d.job_id);
-  }catch(e){ toast('Request failed','err'); }
+    const r=await fetch('/api/info?url='+encodeURIComponent(url)); const d=await r.json();
+    if(d.error){ wrap.innerHTML='<div class="text-xs text-[var(--danger)]">'+esc(d.error)+'</div>'; return; }
+    if(!d.qualities||!d.qualities.length){ wrap.innerHTML='<div class="text-xs text-[var(--muted)]">No size info available.</div>'; return; }
+    wrap.innerHTML='<div class="text-xs text-[var(--muted)] mb-2 truncate" title="'+esc(d.title||'')+'">'+esc(d.title||'')+' · choose a quality</div>'+
+      '<div class="space-y-2">'+d.qualities.map(q=>
+        `<button class="qbtn row" data-type="${q.type}" data-h="${q.height||''}">
+           <div class="min-w-0 flex-1"><div class="text-sm font-semibold">${esc(q.label)}</div></div>
+           <span class="pill">${q.size? '≈ '+fmtSize(q.size):'?'}</span>
+         </button>`).join('')+'</div>';
+    $$('.qbtn',wrap).forEach(b=> b.onclick=()=> startDownload(b.dataset.type, b.dataset.h));
+    if(window.lucide)lucide.createIcons();
+    reveal($$('.qbtn',wrap),true);
+  }catch(e){ wrap.innerHTML='<div class="text-xs text-[var(--danger)]">Estimate failed</div>'; }
 };
 async function pollJob(id){
   const tick=async()=>{
@@ -272,10 +292,16 @@ async function loadFiles(){
   }catch(e){ wrap.innerHTML='<div class="card p-5 text-sm text-[var(--muted)]">Failed to load files.</div>'; }
 }
 function rowHtml(f){
+  const cover = f.cover
+    ? `<img src="/d/${encodeURIComponent(f.cover)}" class="absolute inset-0 w-10 h-10 rounded-xl object-cover" alt="" onerror="this.remove()">`
+    : "";
+  const title = f.title || f.name;
   return `<div class="row" data-name="${esc(f.name)}">
-    <div class="w-10 h-10 rounded-xl grid place-items-center" style="background:var(--accent-soft)"><i data-lucide="file-video" style="color:var(--accent)"></i></div>
+    <div class="relative w-10 h-10 rounded-xl grid place-items-center overflow-hidden" style="background:var(--accent-soft)">
+      <i data-lucide="file-video" style="color:var(--accent)"></i>${cover}
+    </div>
     <div class="min-w-0 flex-1">
-      <div class="truncate text-sm font-semibold" title="${esc(f.name)}">${esc(f.name)}</div>
+      <div class="truncate text-sm font-semibold" title="${esc(title)}">${esc(title)}</div>
       <div class="text-xs text-[var(--muted)]">${fmtSize(f.size)}</div>
     </div>
     <button class="icon-btn" data-act="dl" title="Download"><i data-lucide="download"></i></button>

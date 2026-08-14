@@ -1,4 +1,4 @@
-import os, json, threading, uuid, tempfile, re, sys, subprocess
+import os, json, threading, uuid, tempfile, re, sys, subprocess, urllib.request
 from flask import Flask, request, jsonify, send_from_directory
 import yt_dlp
 
@@ -35,6 +35,83 @@ def build_format(fmt, quality):
     else:
         sel = "bv[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best"
     return sel, False, "mp4"
+
+META_FILE = os.path.join(DOWNLOAD_DIR, ".meta.json")
+
+def load_meta():
+    try:
+        with open(META_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_meta(d):
+    with open(META_FILE, "w") as f:
+        json.dump(d, f, indent=2)
+
+def fetch_thumbnail(url, dest):
+    # ponytail: best-effort cover; failures are fine (cover is optional)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=20) as r, open(dest, "wb") as out:
+            out.write(r.read())
+        return True
+    except Exception:
+        return False
+
+def estimate_sizes(url, cookies_text):
+    # ponytail: explicit filesize is often missing, so estimate from format
+    # bitrate (tbr) * duration. Returns per-quality size list for the picker.
+    cookiefile = None
+    try:
+        if not re.match(r"^https?://", url):
+            return None
+        opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
+        if cookies_text and cookies_text.strip():
+            fd, cookiefile = tempfile.mkstemp(suffix=".txt", prefix="cookies_")
+            with os.fdopen(fd, "w") as cf:
+                cf.write(cookies_text)
+            opts["cookiefile"] = cookiefile
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        if not info:
+            return None
+        duration = info.get("duration") or 0
+        formats = info.get("formats") or []
+        def approx(f):
+            if f.get("filesize"):
+                return f["filesize"]
+            tbr = f.get("tbr")
+            if tbr and duration:
+                return int(tbr / 8 * 1000 * duration)
+            return 0
+        audios = [f for f in formats
+                  if f.get("acodec") not in (None, "none") and f.get("vcodec") == "none"]
+        best_audio = max((approx(f) for f in audios), default=0) if audios else 0
+        quals = []
+        for h in (2160, 1440, 1080, 720, 480, 360):
+            vs = [f for f in formats if f.get("vcodec") not in (None, "none") and f.get("height") == h]
+            if not vs:
+                continue
+            vbest = max(vs, key=approx)
+            quals.append({"label": f"{h}p", "height": h, "type": "mp4",
+                          "size": approx(vbest) + best_audio})
+        if best_audio:
+            quals.append({"label": "MP3", "type": "mp3", "size": best_audio})
+        vids = [f for f in formats if f.get("vcodec") not in (None, "none")]
+        if vids:
+            vbest = max(vids, key=approx)
+            quals.append({"label": "Best", "type": "best",
+                          "size": approx(vbest) + best_audio})
+        return {"title": info.get("title"), "qualities": quals}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        if cookiefile and os.path.exists(cookiefile):
+            try:
+                os.remove(cookiefile)
+            except Exception:
+                pass
 
 def run_download(job_id, url, preset, cookies_text):
     # ponytail: layered retry so transient failures never reach the UI:
@@ -85,6 +162,22 @@ def run_download(job_id, url, preset, cookies_text):
                                     files.append(p)
                             if not files and info.get("_filename") and os.path.exists(info["_filename"]):
                                 files.append(info["_filename"])
+                            # record title + cover so Files shows them
+                            if info.get("title") and not is_audio:
+                                vid = info.get("id") or "vid"
+                                cover = None
+                                if info.get("thumbnail"):
+                                    dest = os.path.join(DOWNLOAD_DIR, f"cover_{vid}.jpg")
+                                    if fetch_thumbnail(info["thumbnail"], dest):
+                                        cover = f"cover_{vid}.jpg"
+                                meta = load_meta()
+                                for fn in files:
+                                    meta[os.path.basename(fn)] = {
+                                        "title": info.get("title"),
+                                        "cover": cover,
+                                        "url": url,
+                                    }
+                                save_meta(meta)
                     jobs[job_id] = {"status": "done", "error": None, "files": files}
                     return
                 except Exception as e:
@@ -125,14 +218,17 @@ def safe_path(name):
 
 
 def list_files():
+    meta = load_meta()
     items = []
     for name in os.listdir(DOWNLOAD_DIR):
-        if name.startswith(".") or name.startswith("cookies_") or ".part" in name:
+        if name.startswith(".") or name.startswith("cover_") or name.startswith("cookies_") or ".part" in name:
             continue
         p = os.path.join(DOWNLOAD_DIR, name)
         if os.path.isfile(p):
             st = os.stat(p)
-            items.append({"name": name, "size": st.st_size, "mtime": int(st.st_mtime)})
+            m = meta.get(name, {})
+            items.append({"name": name, "size": st.st_size, "mtime": int(st.st_mtime),
+                          "title": m.get("title"), "cover": m.get("cover")})
     items.sort(key=lambda x: x["mtime"], reverse=True)
     return items
 
@@ -174,6 +270,20 @@ def post_settings():
     s["yt_cookies"] = s.get("yt_cookies", "")
     save_settings(s)
     return jsonify({"ok": True})
+
+
+@app.route("/api/info")
+def media_info():
+    url = (request.args.get("url") or "").strip()
+    if not re.match(r"^https?://", url):
+        return jsonify({"error": "Invalid URL"}), 400
+    settings = load_settings()
+    est = estimate_sizes(url, settings.get("yt_cookies", ""))
+    if not est:
+        return jsonify({"error": "Could not fetch media info"}), 502
+    if "error" in est:
+        return jsonify(est), 502
+    return jsonify(est)
 
 
 @app.route("/api/download", methods=["POST"])
