@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Fetchr — Media Downloader</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{
+    --bg:#0a0a0f; --surface:#131319; --surface-2:#1a1a23; --surface-3:#22222e;
+    --border:rgba(255,255,255,.08); --border-strong:rgba(255,255,255,.14);
+    --text:#ededf3; --muted:#8a8a9a; --danger:#ff5d6c;
+    --accent:#7c5cff; --accent-soft:rgba(124,92,255,.14);
+    --accent-glow:rgba(124,92,255,.35);
+    --radius:16px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif;
+    -webkit-font-smoothing:antialiased; min-height:100%;}
+  body{background:
+      radial-gradient(1200px 600px at 85% -10%, var(--accent-soft), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, rgba(124,92,255,.08), transparent 55%),
+      var(--bg);}
+  .glass{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01));
+    border:1px solid var(--border); backdrop-filter:blur(14px);}
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:0 1px 0 rgba(255,255,255,.03) inset, 0 12px 30px -18px rgba(0,0,0,.7);}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    padding:11px 16px;border-radius:12px;font-weight:600;font-size:14px;cursor:pointer;
+    border:1px solid var(--border); background:var(--surface-2); color:var(--text);
+    transition:border-color .2s, background .2s;}
+  .btn:hover{border-color:var(--border-strong)}
+  .btn-primary{background:linear-gradient(180deg,var(--accent),color-mix(in srgb,var(--accent) 80%, #000));
+    border-color:transparent; color:#fff; box-shadow:0 8px 24px -10px var(--accent-glow);}
+  .btn-primary:hover{filter:brightness(1.07)}
+  .btn-ghost{background:transparent}
+  .input,textarea.input,select.input{width:100%;background:var(--surface-2);border:1px solid var(--border);
+    border-radius:12px;padding:12px 14px;color:var(--text);font-size:14px;outline:none;
+    transition:border-color .2s, box-shadow .2s;}
+  .input:focus,textarea.input:focus,select.input:focus{border-color:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-soft);}
+  .tab{padding:10px 14px;border-radius:12px;color:var(--muted);font-weight:600;font-size:14px;
+    cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:color .2s,background .2s;}
+  .tab.active{color:var(--text);background:var(--surface-2)}
+  .pill{font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;
+    background:var(--accent-soft); color:var(--accent); border:1px solid color-mix(in srgb,var(--accent) 30%, transparent);}
+  .accent-bar{height:3px;width:100%;border-radius:999px;
+    background:linear-gradient(90deg,var(--accent),transparent 70%);
+    background-size:200% 100%;animation:slide 6s linear infinite;}
+  @keyframes slide{to{background-position:200% 0}}
+  .row{display:flex;align-items:center;gap:14px;padding:14px;border:1px solid var(--border);
+    border-radius:14px;background:var(--surface);transition:border-color .2s, transform .2s, background .2s;}
+  .row:hover{border-color:color-mix(in srgb,var(--accent) 40%, var(--border));
+    background:var(--surface-2); transform:translateX(2px);}
+  .icon-btn{width:38px;height:38px;border-radius:10px;display:inline-flex;align-items:center;
+    justify-content:center;border:1px solid var(--border);background:var(--surface-2);color:var(--muted);
+    cursor:pointer;transition:color .2s,border-color .2s,background .2s;}
+  .icon-btn:hover{color:var(--text);border-color:var(--border-strong)}
+  .icon-btn.danger:hover{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,transparent);background:rgba(255,93,108,.08)}
+  .bar{height:6px;border-radius:999px;background:var(--surface-3);overflow:hidden}
+  .bar > i{display:block;height:100%;width:30%;border-radius:999px;background:var(--accent);
+    animation:indet 1.1s ease-in-out infinite;}
+  @keyframes indet{0%{margin-left:-30%}100%{margin-left:100%}}
+  .toast{position:fixed;right:18px;bottom:18px;z-index:60;max-width:340px;padding:13px 15px;
+    border-radius:14px;display:flex;gap:10px;align-items:flex-start;box-shadow:0 16px 40px -16px rgba(0,0,0,.8);
+    border:1px solid var(--border-strong);background:var(--surface-2);}
+  .skeleton{background:linear-gradient(90deg,var(--surface-2),var(--surface-3),var(--surface-2));
+    background-size:200% 100%;animation:shimmer 1.3s linear infinite;border-radius:10px;height:14px}
+  @keyframes shimmer{to{background-position:-200% 0}}
+  .float{animation:float 5s ease-in-out infinite}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+  .reveal{animation:reveal .5s ease-out both}
+  @keyframes reveal{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .hide{display:none!important}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:999px;border:2px solid var(--bg)}
+  .swatch{width:26px;height:26px;border-radius:999px;cursor:pointer;border:2px solid transparent}
+  .swatch.sel{border-color:#fff}
+</style>
+</head>
+<body>
+<div id="app" class="max-w-3xl mx-auto px-4 pb-16">
+  <header class="pt-6 pb-3">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-2xl grid place-items-center card" style="background:var(--accent-soft)">
+          <i data-lucide="arrow-down-to-line" style="color:var(--accent)"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-extrabold tracking-tight m-0 leading-none">Fetchr</h1>
+          <p class="text-xs text-[var(--muted)] m-0 mt-1">YouTube &amp; Instagram downloader</p>
+        </div>
+      </div>
+      <span class="pill" id="volTag">/data · 500MB</span>
+    </div>
+    <div class="accent-bar mt-3"></div>
+  </header>
+
+  <nav class="glass sticky top-0 z-30 rounded-2xl px-2 py-2 mt-2 flex gap-1">
+    <div class="tab active" data-view="downloader"><i data-lucide="download"></i>Downloader</div>
+    <div class="tab" data-view="files"><i data-lucide="folder-open"></i>Files</div>
+    <div class="tab" data-view="settings"><i data-lucide="settings"></i>Settings</div>
+  </nav>
+
+  <main class="mt-5">
+    <!-- DOWNLOADER -->
+    <section id="view-downloader">
+      <div class="card p-5 reveal">
+        <label class="text-sm font-semibold text-[var(--muted)]">Media URL</label>
+        <input id="url" class="input mt-2" placeholder="https://youtu.be/... or instagram.com/reel/..." />
+        <div class="flex items-center gap-2 mt-3">
+          <select id="fmt" class="input w-auto">
+            <option value="best">Best quality</option>
+            <option value="mp4">MP4 (video)</option>
+            <option value="mp3">MP3 (audio)</option>
+          </select>
+          <button id="go" class="btn btn-primary flex-1"><i data-lucide="zap"></i>Download</button>
+        </div>
+        <div id="prog" class="hide mt-4">
+          <div class="flex items-center justify-between text-xs text-[var(--muted)] mb-2">
+            <span id="progLabel">Downloading…</span><span id="progPct">…</span>
+          </div>
+          <div class="bar"><i></i></div>
+        </div>
+      </div>
+      <p class="text-xs text-[var(--muted)] mt-3 px-1">Downloads are saved to your persistent volume and appear in <b>Files</b>. Age-restricted or members-only videos need a YouTube cookie — set it in <b>Settings</b>.</p>
+    </section>
+
+    <!-- FILES -->
+    <section id="view-files" class="hide">
+      <div id="filesWrap"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="view-settings" class="hide">
+      <div class="card p-5 reveal space-y-5">
+        <div>
+          <label class="text-sm font-semibold">YouTube cookies (optional)</label>
+          <p class="text-xs text-[var(--muted)] mt-1">Paste an exported <code class="text-[var(--accent)]">cookies.txt</code> to fetch age-restricted / members-only content. Stored only on your volume.</p>
+          <textarea id="cookies" class="input mt-2" rows="4" placeholder="# Netscape HTTP Cookie File …"></textarea>
+          <span id="cookieState" class="text-xs text-[var(--muted)]"></span>
+        </div>
+        <div>
+          <label class="text-sm font-semibold">Default format</label>
+          <select id="defFmt" class="input mt-2 w-auto">
+            <option value="best">Best quality</option>
+            <option value="mp4">MP4 (video)</option>
+            <option value="mp3">MP3 (audio)</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-sm font-semibold">Accent color</label>
+          <div id="swatches" class="flex gap-2 mt-3"></div>
+        </div>
+        <button id="saveSet" class="btn btn-primary w-full"><i data-lucide="save"></i>Save settings</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toastRoot"></div>
+
+<script type="module">
+let M = null;
+try { M = await import("https://cdn.jsdelivr.net/npm/motion@11/+esm"); } catch (e) { M = null; }
+const motionReady = () => !!M && !!M.animate;
+
+// ---- Telegram mini-app ----
+try { if (window.Telegram && Telegram.WebApp) { Telegram.WebApp.ready(); Telegram.WebApp.expand();
+  const p = Telegram.WebApp.themeParams; if (p && p.bg_color) document.documentElement.style.setProperty('--bg', p.bg_color);
+  if (p && p.button_color) document.documentElement.style.setProperty('--accent', p.button_color);
+} } catch(e){}
+
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+const fmtSize = b => b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function reveal(els, stagger=false){
+  if(!els) return; const list = els.nodeType ? [els] : els;
+  if(motionReady()){
+    if(stagger) M.animate(list, {opacity:[0,1], y:[16,0]}, {delay:M.stagger(0.06), duration:.45, easing:'ease-out'});
+    else list.forEach((el,i)=> M.animate(el,{opacity:[0,1],y:[14,0]},{duration:.5, delay:i*.04, easing:'ease-out'}));
+  } else list.forEach(el=>{el.classList.add('reveal');});
+}
+function pressable(el){
+  if(!motionReady() || !el) return;
+  el.addEventListener('pointerenter',()=>M.animate(el,{scale:1.03},{duration:.15}));
+  el.addEventListener('pointerleave',()=>M.animate(el,{scale:1},{duration:.15}));
+  el.addEventListener('pointerdown',()=>M.animate(el,{scale:.96},{duration:.1}));
+  el.addEventListener('pointerup',()=>M.animate(el,{scale:1.03},{duration:.1}));
+}
+function toast(msg, kind='ok'){
+  const t=document.createElement('div'); t.className='toast';
+  const ic = kind==='err' ? 'x-circle' : 'check-circle-2';
+  t.innerHTML=`<i data-lucide="${ic}" style="${kind==='err'?'color:var(--danger)':'color:var(--accent)'}"></i><span class="text-sm">${esc(msg)}</span>`;
+  $('#toastRoot').appendChild(t); if(window.lucide) lucide.createIcons();
+  if(motionReady()) M.animate(t,{x:[40,0],opacity:[0,1]},{duration:.3,easing:'ease-out'});
+  setTimeout(()=>{ if(motionReady()) M.animate(t,{x:[0,40],opacity:[1,0]},{duration:.25}).then(()=>t.remove()); else t.remove(); }, 3200);
+}
+
+// ---- Tabs ----
+$$('.tab').forEach(tab=>{
+  tab.onclick=()=>{ $$('.tab').forEach(t=>t.classList.remove('active')); tab.classList.add('active');
+    const v=tab.dataset.view; $$('main > section').forEach(s=>s.classList.add('hide'));
+    $('#view-'+v).classList.remove('hide');
+    if(v==='files') loadFiles();
+    if(v==='settings') loadSettings();
+  };
+});
+
+// ---- Download ----
+$('#go').onclick = async () => {
+  const url=$('#url').value.trim(); if(!/^https?:\/\//.test(url)){ toast('Enter a valid http(s) URL','err'); return; }
+  pressable($('#go')); $('#go').disabled=true; $('#prog').classList.remove('hide'); $('#progPct').textContent='…';
+  try{
+    const r=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url, format:$('#fmt').value})});
+    const d=await r.json(); if(d.error){ toast(d.error,'err'); return; }
+    pollJob(d.job_id);
+  }catch(e){ toast('Request failed','err'); }
+};
+async function pollJob(id){
+  const tick=async()=>{
+    const r=await fetch('/api/jobs/'+id); const j=await r.json();
+    if(j.status==='pending'){ setTimeout(tick,1200); return; }
+    $('#prog').classList.add('hide'); $('#go').disabled=false;
+    if(j.status==='done'){ toast('Download complete'); loadFiles(); }
+    else toast('Error: '+(j.error||'failed'),'err');
+  }; setTimeout(tick,1000);
+}
+
+// ---- Files ----
+async function loadFiles(){
+  const wrap=$('#filesWrap'); wrap.innerHTML='<div class="card p-5 space-y-3">'+
+    Array.from({length:3}).map(()=>'<div class="skeleton w-full"></div>').join('')+'</div>';
+  try{
+    const r=await fetch('/api/files'); const {files}=await r.json();
+    if(!files.length){ wrap.innerHTML=emptyState(); if(window.lucide)lucide.createIcons(); return; }
+    wrap.innerHTML='<div class="space-y-2">'+files.map(f=>rowHtml(f)).join('')+'</div>';
+    if(window.lucide)lucide.createIcons();
+    reveal($$('.row'), true);
+    $$('.row').forEach(row=>{
+      const name=row.dataset.name;
+      row.querySelector('[data-act=dl]').onclick=()=>{ window.location.href='/d/'+encodeURIComponent(name); };
+      row.querySelector('[data-act=del]').onclick=async()=>{
+        if(!confirm('Delete "'+name+'"?')) return;
+        const r=await fetch('/api/files/'+encodeURIComponent(name),{method:'DELETE'});
+        const d=await r.json(); if(d.ok){ toast('Deleted'); loadFiles(); } else toast('Delete failed','err');
+      };
+    });
+  }catch(e){ wrap.innerHTML='<div class="card p-5 text-sm text-[var(--muted)]">Failed to load files.</div>'; }
+}
+function rowHtml(f){
+  return `<div class="row" data-name="${esc(f.name)}">
+    <div class="w-10 h-10 rounded-xl grid place-items-center" style="background:var(--accent-soft)"><i data-lucide="file-video" style="color:var(--accent)"></i></div>
+    <div class="min-w-0 flex-1">
+      <div class="truncate text-sm font-semibold" title="${esc(f.name)}">${esc(f.name)}</div>
+      <div class="text-xs text-[var(--muted)]">${fmtSize(f.size)}</div>
+    </div>
+    <button class="icon-btn" data-act="dl" title="Download"><i data-lucide="download"></i></button>
+    <button class="icon-btn danger" data-act="del" title="Delete"><i data-lucide="trash-2"></i></button>
+  </div>`;
+}
+function emptyState(){
+  return `<div class="card p-10 text-center reveal">
+    <div class="float mx-auto w-20 h-20 rounded-3xl grid place-items-center" style="background:var(--accent-soft)">
+      <i data-lucide="inbox" style="color:var(--accent)" width="34" height="34"></i></div>
+    <h3 class="mt-4 font-bold">No downloads yet</h3>
+    <p class="text-sm text-[var(--muted)] mt-1">Paste a YouTube or Instagram link in the Downloader tab.</p>
+  </div>`;
+}
+
+// ---- Settings ----
+const ACCENTS=[['#7c5cff','Violet'],['#22c55e','Emerald'],['#f43f5e','Rose'],['#f59e0b','Amber'],['#0ea5e9','Sky'],['#ec4899','Pink']];
+function buildSwatches(){
+  const c=$('#swatches'); c.innerHTML=ACCENTS.map(([c,n])=>
+    `<div class="swatch" data-c="${c}" title="${n}" style="background:${c}"></div>`).join('');
+  $$('.swatch',c).forEach(s=> s.onclick=()=>{
+    document.documentElement.style.setProperty('--accent', s.dataset.c);
+    const rgb=hexRgb(s.dataset.c); document.documentElement.style.setProperty('--accent-soft',`rgba(${rgb},.14)`);
+    document.documentElement.style.setProperty('--accent-glow',`rgba(${rgb},.35)`);
+    $$('.swatch').forEach(x=>x.classList.remove('sel')); s.classList.add('sel');
+  });
+}
+function hexRgb(h){const n=parseInt(h.slice(1),16);return `${(n>>16)&255},${(n>>8)&255},${n&255}`;}
+async function loadSettings(){
+  try{ const r=await fetch('/api/settings'); const s=await r.json();
+    $('#defFmt').value=s.default_format||'best';
+    if(s.has_cookies) $('#cookieState').textContent='Cookies saved on your volume.';
+    if(s.accent){ document.documentElement.style.setProperty('--accent',s.accent);
+      const rgb=hexRgb(s.accent); document.documentElement.style.setProperty('--accent-soft',`rgba(${rgb},.14)`);
+      document.documentElement.style.setProperty('--accent-glow',`rgba(${rgb},.35)`);
+      $$('.swatch').forEach(x=>x.classList.toggle('sel', x.dataset.c.toLowerCase()===s.accent.toLowerCase())); }
+  }catch(e){}
+}
+$('#saveSet').onclick=async()=>{
+  const body={ yt_cookies:$('#cookies').value, default_format:$('#defFmt').value,
+    accent:($('.swatch.sel')||{}).dataset?.c || getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() };
+  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json(); if(d.ok){ toast('Settings saved'); loadSettings(); } else toast('Save failed','err');
+};
+
+// ---- init ----
+buildSwatches();
+if(window.lucide) lucide.createIcons();
+pressable($('#go')); pressable($('#saveSet'));
+reveal($('#view-downloader .card'));
+loadFiles();
+</script>
+</body>
+</html>
