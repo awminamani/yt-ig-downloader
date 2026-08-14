@@ -1,4 +1,4 @@
-import os, json, threading, uuid, tempfile, re
+import os, json, threading, uuid, tempfile, re, sys, subprocess
 from flask import Flask, request, jsonify, send_from_directory
 import yt_dlp
 
@@ -10,6 +10,15 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 # exhaust the 500MB volume at once. Per-user locks if multi-tenant later.
 dl_lock = threading.Lock()
 jobs = {}  # id -> {status, error, files}
+
+def update_ytdlp():
+    # ponytail: YouTube format manifests change constantly; a pinned yt-dlp goes
+    # stale in weeks. Self-update on boot (non-fatal: keep build if no network).
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
+                       capture_output=True, timeout=180)
+    except Exception:
+        pass
 
 def build_format(fmt, quality):
     # ponytail: greedy [ext=mp4] chains can fail when a video has no MP4 stream;
@@ -26,6 +35,70 @@ def build_format(fmt, quality):
     else:
         sel = "bv[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best"
     return sel, False, "mp4"
+
+def run_download(job_id, url, preset, cookies_text):
+    # ponytail: layered retry so transient failures never reach the UI:
+    #   1) chosen format (+cookie) 2) best (+cookie) 3) best WITHOUT cookie.
+    # A stored/expired cookie can break the request (metube works without one),
+    # so the final no-cookie attempt mirrors a working bare downloader.
+    try:
+        with dl_lock:
+            fmt = preset.get("type", "best") if isinstance(preset, dict) else preset
+            quality = preset.get("quality") if isinstance(preset, dict) else None
+            primary = build_format(fmt, quality)
+            fallback = ("bestaudio/best", True, None) if fmt == "mp3" else ("best", False, None)
+            attempts = [(primary[0], primary[1], primary[2], True),
+                        (fallback[0], fallback[1], fallback[2], True)]
+            if cookies_text and cookies_text.strip():
+                attempts.append((fallback[0], fallback[1], fallback[2], False))
+            last_err = None
+            cookiefile = None
+            for sel, is_audio, merge, use_cookie in attempts:
+                opts = {
+                    "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s [%(id)s].%(ext)s"),
+                    "noplaylist": True,
+                    "quiet": True,
+                    "no_warnings": True,
+                    "format": sel,
+                }
+                if merge:
+                    opts["merge_output_format"] = merge
+                if is_audio:
+                    opts["postprocessors"] = [{
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "192",
+                    }]
+                if use_cookie and cookies_text and cookies_text.strip():
+                    fd, cookiefile = tempfile.mkstemp(suffix=".txt", prefix="cookies_")
+                    with os.fdopen(fd, "w") as cf:
+                        cf.write(cookies_text)
+                    opts["cookiefile"] = cookiefile
+                try:
+                    files = []
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        if info:
+                            for rd in info.get("requested_downloads", []):
+                                p = rd.get("filepath")
+                                if p and os.path.exists(p):
+                                    files.append(p)
+                            if not files and info.get("_filename") and os.path.exists(info["_filename"]):
+                                files.append(info["_filename"])
+                    jobs[job_id] = {"status": "done", "error": None, "files": files}
+                    return
+                except Exception as e:
+                    last_err = e
+                finally:
+                    if cookiefile and os.path.exists(cookiefile):
+                        try:
+                            os.remove(cookiefile)
+                        except Exception:
+                            pass
+                        cookiefile = None
+            jobs[job_id] = {"status": "error", "error": str(last_err), "files": []}
+    except Exception as e:
+        jobs[job_id] = {"status": "error", "error": str(e), "files": []}
 
 
 def load_settings():
@@ -62,54 +135,6 @@ def list_files():
             items.append({"name": name, "size": st.st_size, "mtime": int(st.st_mtime)})
     items.sort(key=lambda x: x["mtime"], reverse=True)
     return items
-
-
-def run_download(job_id, url, preset, cookies_text):
-    cookiefile = None
-    try:
-        with dl_lock:
-            fmt = preset.get("type", "best") if isinstance(preset, dict) else preset
-            quality = preset.get("quality") if isinstance(preset, dict) else None
-            sel, is_audio, merge = build_format(fmt, quality)
-            opts = {
-                "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s [%(id)s].%(ext)s"),
-                "noplaylist": True,
-                "quiet": True,
-                "no_warnings": True,
-                "format": sel,
-            }
-            if merge:
-                opts["merge_output_format"] = merge
-            if cookies_text and cookies_text.strip():
-                fd, cookiefile = tempfile.mkstemp(suffix=".txt", prefix="cookies_")
-                with os.fdopen(fd, "w") as cf:
-                    cf.write(cookies_text)
-                opts["cookiefile"] = cookiefile
-            if is_audio:
-                opts["postprocessors"] = [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }]
-            files = []
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                if info:
-                    for rd in info.get("requested_downloads", []):
-                        p = rd.get("filepath")
-                        if p and os.path.exists(p):
-                            files.append(p)
-                    if not files and info.get("_filename") and os.path.exists(info["_filename"]):
-                        files.append(info["_filename"])
-            jobs[job_id] = {"status": "done", "error": None, "files": files}
-    except Exception as e:
-        jobs[job_id] = {"status": "error", "error": str(e), "files": []}
-    finally:
-        if cookiefile and os.path.exists(cookiefile):
-            try:
-                os.remove(cookiefile)
-            except Exception:
-                pass
 
 
 app = Flask(__name__, static_folder=None)
@@ -204,5 +229,6 @@ def serve_file(name):
 
 
 if __name__ == "__main__":
+    update_ytdlp()  # refresh yt-dlp on boot so YouTube format changes don't break it
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
